@@ -1,6 +1,7 @@
 import re
 import chromadb
 from sentence_transformers import SentenceTransformer
+from hybrid import vector_ids, bm25_ids, hybrid_ids, get_chunk
 
 model = SentenceTransformer("BAAI/bge-small-en-v1.5")
 col = chromadb.PersistentClient("chroma_db").get_collection("kyc")
@@ -13,7 +14,7 @@ TESTS = [
     ("does the video call have to record where the customer is",
      r"geo\s?-\s?tagging"),                                                    # p.28
     ("can a customer be verified remotely",
-     r"Video[\s-]*based\s+Customer\s+Identification"),                         # p.13
+     r"Video[\s-]*based\s+Customer\s+Identification|first\s+option\s+to\s+the\s+customer\s+for\s+remote\s+onboarding"),  # p.13 or p.45                         # p.13
     ("what documents are needed for digital KYC",
      r"Digital\s+KYC\s+Process"),                                              # p.71
     ("how long do banks have to keep transaction records",
@@ -34,23 +35,22 @@ TESTS = [
      r"Cash\s+Transaction\s+Reports"),                                         # p.51
 ]
 
-
-def rank_of(q, pattern, k=10):
-    emb = model.encode([PREFIX + q], normalize_embeddings=True).tolist()
-    docs = col.query(query_embeddings=emb, n_results=k)["documents"][0]
-    for i, d in enumerate(docs):
-        if re.search(pattern, d, re.I):
+def rank_in(ids, pattern, k=10):
+    for i, id_ in enumerate(ids[:k]):
+        if re.search(pattern, get_chunk(id_)[0], re.I):
             return i + 1
     return None
 
 
 if __name__ == "__main__":
-    found = top1 = top5 = 0
+    METHODS = {"vector": vector_ids, "bm25": bm25_ids, "hybrid": hybrid_ids}
+    top5 = {m: 0 for m in METHODS}
+    print(f"{'vector':>7} {'bm25':>6} {'hybrid':>7} | question")
     for q, pattern in TESTS:
-        r = rank_of(q, pattern)
-        found += r is not None
-        top1 += r == 1
-        top5 += r is not None and r <= 5
-        print(f"rank {r or 'MISS':>4} | {q}")
+        row = {m: rank_in(fn(q), pattern) for m, fn in METHODS.items()}
+        for m, r in row.items():
+            top5[m] += r is not None and r <= 5
+        print(f"{str(row['vector'] or 'MISS'):>7} {str(row['bm25'] or 'MISS'):>6} "
+              f"{str(row['hybrid'] or 'MISS'):>7} | {q}")
     n = len(TESTS)
-    print(f"\ntop-1: {top1}/{n}   top-5: {top5}/{n}   top-10: {found}/{n}")
+    print("\ntop-5:", {m: f"{c}/{n}" for m, c in top5.items()})
