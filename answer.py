@@ -11,7 +11,7 @@ from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+MODELS = [m.strip() for m in os.getenv("GEMINI_MODELS", "gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.6-flash").split(",")]
 PREFIX = "Represent this sentence for searching relevant passages: "
 
 embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
@@ -56,33 +56,29 @@ def retrieve(q, k=6):
     ))
 
 
-def generate_answer(prompt, max_retries=3):
-
-    for attempt in range(max_retries + 1):
-        try:
-            resp = client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM,
-                    temperature=0
-                ),
-            )
-
-            return resp.text
-
-        except errors.ServerError:
-            if attempt == max_retries:
-                raise
-
-            wait = 2 ** (attempt + 1)
-
-            print(
-                f"Gemini temporarily unavailable. "
-                f"Retrying in {wait} seconds..."
-            )
-
-            time.sleep(wait)
+def generate_answer(prompt, rounds=2):
+    for r in range(rounds):
+        for model in MODELS:
+            try:
+                resp = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM,
+                        temperature=0,
+                    ),
+                )
+                print(f"(answered by {model})")
+                return resp.text
+            except (errors.ServerError, errors.ClientError) as e:
+                # 503/5xx = busy, 429 = rate limit, 404 = bad model name -> try the next one
+                code = getattr(e, "code", None)
+                if code not in (404, 429) and not isinstance(e, errors.ServerError):
+                    raise
+                print(f"{model} failed ({code}), trying next model...")
+        if r < rounds - 1:
+            time.sleep(10)
+    raise RuntimeError("All models are busy right now. Try again later.")
 
 
 def answer(q):
