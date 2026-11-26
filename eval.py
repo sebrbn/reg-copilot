@@ -2,6 +2,7 @@ import re
 import chromadb
 from sentence_transformers import SentenceTransformer
 from hybrid import vector_ids, bm25_ids, hybrid_ids, get_chunk
+from rewrite import rewrite
 
 model = SentenceTransformer("BAAI/bge-small-en-v1.5")
 col = chromadb.PersistentClient("chroma_db").get_collection("kyc")
@@ -43,14 +44,21 @@ def rank_in(ids, pattern, k=10):
 
 
 if __name__ == "__main__":
-    METHODS = {"vector": vector_ids, "bm25": bm25_ids, "hybrid": hybrid_ids}
+    METHODS = {
+        "vector": vector_ids,
+        "hybrid": hybrid_ids,
+        "rewrite": lambda q: hybrid_ids(rewrite(q)),
+    }
     top5 = {m: 0 for m in METHODS}
-    print(f"{'vector':>7} {'bm25':>6} {'hybrid':>7} | question")
+    print(f"{'vector':>7} {'hybrid':>7} {'rewrite':>8} | question")
     for q, pattern in TESTS:
         row = {m: rank_in(fn(q), pattern) for m, fn in METHODS.items()}
         for m, r in row.items():
             top5[m] += r is not None and r <= 5
-        print(f"{str(row['vector'] or 'MISS'):>7} {str(row['bm25'] or 'MISS'):>6} "
-              f"{str(row['hybrid'] or 'MISS'):>7} | {q}")
+        print(f"{str(row['vector'] or 'MISS'):>7} {str(row['hybrid'] or 'MISS'):>7} "
+              f"{str(row['rewrite'] or 'MISS'):>8} | {q}")
     n = len(TESTS)
     print("\ntop-5:", {m: f"{c}/{n}" for m, c in top5.items()})
+    print("\nREWRITES:")
+    for q, _ in TESTS:
+        print(f"- {q}\n    -> {rewrite(q)}")

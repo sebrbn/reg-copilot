@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types, errors
 
-from hybrid import hybrid_ids, get_chunk
+from hybrid import hybrid_ids, get_chunk    
+
+from rewrite import rewrite
+
 
 load_dotenv()
 
@@ -29,7 +32,7 @@ Answer ONLY using the numbered sources provided. Rules:
 
 
 def retrieve(q, k=6):
-    return [get_chunk(i) for i in hybrid_ids(q, k=k)]
+    return [get_chunk(i) for i in hybrid_ids(rewrite(q), k=k)]
 
 
 def generate_answer(prompt, rounds=2):
