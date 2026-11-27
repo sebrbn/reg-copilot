@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reg Copilot</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { margin-bottom: .2rem; }
+  .sub { color: #666; margin-top: 0; }
+  textarea { width: 100%; box-sizing: border-box; padding: .6rem; font: inherit; border: 1px solid #bbb; border-radius: 6px; min-height: 70px; }
+  button { margin-top: .5rem; padding: .55rem 1.2rem; font: inherit; border: 0; border-radius: 6px; background: #1f4fd8; color: #fff; cursor: pointer; }
+  button:disabled { background: #8a9ad8; cursor: wait; }
+  #answer { white-space: pre-wrap; background: #f4f6fb; border-radius: 6px; padding: 1rem; margin-top: 1.2rem; display: none; }
+  #error { color: #b00020; margin-top: 1rem; }
+  details { border: 1px solid #ddd; border-radius: 6px; margin-top: .6rem; padding: .5rem .8rem; }
+  summary { cursor: pointer; font-weight: 600; }
+  pre { white-space: pre-wrap; font-size: .85rem; color: #333; }
+  .note { margin-top: 2rem; font-size: .85rem; color: #666; border-top: 1px solid #eee; padding-top: .8rem; }
+</style>
+</head>
+<body>
+  <h1>Reg Copilot</h1>
+  <p class="sub">Ask about the RBI KYC Master Direction. Answers cite page numbers.</p>
+
+  <textarea id="q" placeholder="e.g. How often must KYC be updated for high-risk customers?"></textarea>
+  <button id="go">Ask</button>
+
+  <div id="error"></div>
+  <div id="answer"></div>
+  <div id="sources"></div>
+
+  <p class="note">AI-generated from retrieved text and can be wrong or incomplete.
+  Always check the cited source passages below the answer. Not legal advice.</p>
+
+<script>
+const q = document.getElementById("q");
+const go = document.getElementById("go");
+const ans = document.getElementById("answer");
+const err = document.getElementById("error");
+const srcBox = document.getElementById("sources");
+
+async function ask() {
+  const question = q.value.trim();
+  if (!question) return;
+  go.disabled = true; go.textContent = "Thinking...";
+  err.textContent = ""; ans.style.display = "none"; srcBox.replaceChildren();
+  try {
+    const res = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Something went wrong.");
+    ans.textContent = data.answer;
+    ans.style.display = "block";
+    const h = document.createElement("h3");
+    h.textContent = "Sources retrieved";
+    srcBox.appendChild(h);
+    data.sources.forEach(s => {
+      const d = document.createElement("details");
+      const sm = document.createElement("summary");
+      sm.textContent = "Page " + s.page;
+      const pre = document.createElement("pre");
+      pre.textContent = s.text;
+      d.append(sm, pre);
+      srcBox.appendChild(d);
+    });
+  } catch (e) {
+    err.textContent = e.message;
+  } finally {
+    go.disabled = false; go.textContent = "Ask";
+  }
+}
+go.addEventListener("click", ask);
+q.addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask(); });
+</script>
+</body>
+</html> 

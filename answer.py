@@ -6,10 +6,8 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types, errors
 
-from hybrid import hybrid_ids, get_chunk    
-
+from hybrid import hybrid_ids, get_chunk
 from rewrite import rewrite
-
 
 load_dotenv()
 
@@ -28,10 +26,13 @@ Answer ONLY using the numbered sources provided. Rules:
 2. If the sources do not contain the answer, reply exactly:
    "The provided sources do not answer this."
 3. Do not use outside knowledge, and do not guess.
-4. If sources look incomplete or cut off, say so."""
+4. If sources look incomplete or cut off, say so.
+5. Only attribute a rule to a topic if the source text itself ties them together.
+   Sources may contain the end of one paragraph next to the start of another."""
 
 
 def retrieve(q, k=6):
+    # search with the expanded query, but answer the user's original question
     return [get_chunk(i) for i in hybrid_ids(rewrite(q), k=k)]
 
 
@@ -42,13 +43,9 @@ def generate_answer(prompt, rounds=2):
                 resp = client.models.generate_content(
                     model=model,
                     contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM,
-                        temperature=0,
-                    ),
+                    config=types.GenerateContentConfig(system_instruction=SYSTEM, temperature=0),
                 )
-                print(f"(answered by {model})")
-                return resp.text
+                return resp.text, model
             except (errors.ServerError, errors.ClientError) as e:
                 code = getattr(e, "code", None)
                 if code not in (404, 429) and not isinstance(e, errors.ServerError):
@@ -56,22 +53,23 @@ def generate_answer(prompt, rounds=2):
                 print(f"{model} failed ({code}): {str(e)[:100]}")
         if r < rounds - 1:
             time.sleep(10)
-    raise RuntimeError("No model could answer right now. Try again later.")
+    raise RuntimeError("The AI service is busy right now. Please try again in a minute.")
 
 
 def answer(q):
+    """Return (answer_text, chunks) where chunks is a list of (text, metadata)."""
     chunks = retrieve(q)
     if not chunks:
         return "The provided sources do not answer this.", []
-
     context = "\n\n".join(f"[p.{m['page']}]\n{d}" for d, m in chunks)
-    prompt = f"SOURCES:\n{context}\n\nQUESTION: {q}"
-    return generate_answer(prompt), [m["page"] for _, m in chunks]
+    text, model = generate_answer(f"SOURCES:\n{context}\n\nQUESTION: {q}")
+    print(f"(answered by {model})")
+    return text, chunks
 
 
 if __name__ == "__main__":
     q = " ".join(sys.argv[1:]) or input("Enter your regulatory question: ")
-    text, pages = answer(q)
+    text, chunks = answer(q)
     print("\nANSWER:\n")
     print(text)
-    print("\nPages retrieved:", sorted(set(pages)))
+    print("\nPages retrieved:", sorted({m["page"] for _, m in chunks}))
